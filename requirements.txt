@@ -29,3 +29,5 @@ jupyter
 ipykernel
 matplotlib
 seaborn
+
+bitsandbytes
