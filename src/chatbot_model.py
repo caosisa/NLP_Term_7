@@ -99,6 +99,7 @@ class CompleteCampusKnowledgeBase:
                         "08:30", "09:30", "09:40", "10:30", "11:30",
                         "13:30", "14:30", "15:30", "16:30", "17:30"
                     ],
+
                     "route_stops": [
                         "정심화 국제문화회관", "사회과학대학 입구(한누리회관 뒤)",
                         "서문(공동실험실습관 앞)", "음악 2호관 앞", "공동동물실험센터(회차)",
@@ -491,21 +492,68 @@ class CompleteCampusChatBot:
         # 간단한 시간 정보만
         current_context = f"현재: {now.strftime('%Y-%m-%d %H:%M')} ({weekday})"
 
-        prompt = f"""<|im_start|>system
-당신은 충남대학교 학생 도우미입니다. {current_context}
-
-{context}
-
-간결하고 정확한 답변을 해주세요.
-<|im_end|>
-<|im_start|>user
-{question}
-<|im_end|>
-<|im_start|>assistant
-"""
+        prompt = f"""/no_think <|im_start|>system
+                당신은 충남대학교 학생 도우미입니다. 
+                다음 정보를 바탕으로 간결하고 정확한 답변을 해주세요.
+                {current_context}
+                {context}
+                <|im_end|>
+                <|im_start|>user
+                {question}
+                <|im_end|>
+                <|im_start|>assistant
+                """
         return prompt
 
-    def generate_comprehensive_answer(self, question, max_new_tokens=150, temperature=0.1):
+    def extract_answer_from_response(self, full_response, prompt):
+        """응답에서 실제 답변 부분만 추출 - 간소화된 버전"""
+        try:
+            # 1. 프롬프트 부분 제거
+            if full_response.startswith(prompt):
+                answer = full_response[len(prompt):].strip()
+            else:
+                # 2. assistant 토큰 이후 부분 추출
+                if "<|im_start|>assistant" in full_response:
+                    parts = full_response.split("<|im_start|>assistant")
+                    answer = parts[-1].strip()
+                else:
+                    answer = full_response.strip()
+
+            # 3. 특수 토큰들 제거
+            answer = re.sub(r'<\|im_end\|>', '', answer)
+            answer = re.sub(r'<\|im_start\|>.*?>', '', answer)
+
+            # 4. 시스템 프롬프트가 답변에 포함된 경우 제거
+            if "당신은 충남대학교 학생 도우미입니다" in answer:
+                parts = answer.split("assistant")
+                if len(parts) > 1:
+                    answer = parts[-1].strip()
+
+            # 5. 컨텍스트 정보가 답변에 포함된 경우 제거
+            if "=== 충남대학교 종합 정보 ===" in answer:
+                parts = answer.split("간결하고 정확한 답변을 해주세요.")
+                if len(parts) > 1:
+                    answer = parts[-1].strip()
+
+            # 6. 역할 태그들 제거
+            answer = re.sub(r'^(system|user|assistant)\s*', '', answer)
+            answer = re.sub(r'\n(system|user|assistant)\s*', '\n', answer)
+
+            # 7. 앞뒤 공백 및 개행 정리
+            answer = answer.strip()
+
+            # 8. 빈 답변이면 None 반환
+            if not answer or len(answer.strip()) < 3:
+                return None
+
+            return answer
+
+        except Exception as e:
+            print(f"⚠️ 답변 추출 중 오류: {e}")
+            return None
+
+
+    def generate_comprehensive_answer(self, question, max_new_tokens=30000):
         """메모리 최적화된 답변 생성"""
         try:
             print(f"🔍 질문 분석 중: {question}")
@@ -528,7 +576,7 @@ class CompleteCampusChatBot:
                 prompt,
                 return_tensors="pt",
                 truncation=True,
-                max_length=1200  # 3000 → 1200으로 대폭 축소
+                max_length=3000  # 더 짧게 제한
             ).to(self.device)
 
             # 메모리 정리
@@ -539,10 +587,11 @@ class CompleteCampusChatBot:
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=max_new_tokens,  # 150으로 제한
-                    do_sample=False,  # 샘플링 비활성화로 메모리 절약
+                    max_new_tokens=max_new_tokens,  # 더 짧게 제한
+                    do_sample=True,
+                    temperature=0.7,
                     pad_token_id=self.tokenizer.eos_token_id,
-                    use_cache=False  # 캐시 비활성화로 메모리 절약
+                    eos_token_id=self.tokenizer.eos_token_id
                 )
 
             # 즉시 메모리 해제
@@ -551,20 +600,17 @@ class CompleteCampusChatBot:
                 torch.cuda.empty_cache()
 
             # 6. 디코딩
-            full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
             # 메모리 해제
             del outputs
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            # 답변 추출
-            if "<|im_start|>assistant" in full_response:
-                answer = full_response.split("<|im_start|>assistant")[-1].strip()
-            else:
-                answer = full_response.replace(prompt, "").strip()
+            # 7. 답변 추출 (프롬프트와 특수 토큰 제거)
+            answer = self.extract_answer_from_response(full_response, prompt)
 
-            # 답변 품질 검사 (최소한만)
+            # 8. 답변 품질 검사
             if not answer or len(answer) < 5:
                 return self.get_fallback_answer(question)
 
@@ -636,7 +682,7 @@ class CompleteCampusChatBot:
                     })
 
                     # 5개마다 중간 저장 및 메모리 정리
-                    if (i + 1) % 5 == 0:
+                    if (i + 1) % 3 == 0:
                         print(f"💾 중간 저장... ({i+1}개 완료)")
                         self.save_partial_results(results, output_file_path)
                         if torch.cuda.is_available():
@@ -713,7 +759,7 @@ def main():
 
         # 테스트 파일 처리
         test_file_path = "./data/shuttle_test_chat.json"
-        output_file_path = "./outputs/shuttle_test_chat_output.json"
+        output_file_path = "./outputs/think_shuttle_test_chat_output.json"
 
         if os.path.exists(test_file_path):
             print(f"📂 테스트 파일 발견: {test_file_path}")
