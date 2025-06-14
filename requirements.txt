@@ -1,0 +1,31 @@
+# 프로젝트 필수 요구사항 (최소 버전만 고정)
+torch==2.5.1
+pytorch-lightning==2.4.0
+
+# 나머지는 자동으로 호환 버전 설치
+transformers
+datasets
+tokenizers
+huggingface_hub
+accelerate
+
+# 데이터 처리
+pandas
+numpy
+scikit-learn
+
+# 웹 UI
+streamlit
+
+# 웹 크롤링
+requests
+beautifulsoup4
+lxml
+
+# 기타 유틸리티
+tqdm
+python-dateutil
+jupyter
+ipykernel
+matplotlib
+seaborn
