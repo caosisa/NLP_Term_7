@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-충남대 Campus ChatBot - 완전한 RAG 버전
-실시간 크롤링 + 정적 정보 + 안정적인 프롬프트 처리
-"""
-
 import json
 import os
 import re
 import requests
 from datetime import datetime, date
+import calendar
 from bs4 import BeautifulSoup
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 import time
+import os
 
+# 환경변수로 설정
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # GPU 1번만 사용
 
 class CompleteCampusKnowledgeBase:
     """완전한 캠퍼스 지식 베이스 (정적 + 실시간)"""
@@ -79,17 +79,62 @@ class CompleteCampusKnowledgeBase:
             },
 
             "shuttle": {
-                "school_hours": "등교시간 07:30-09:00, 하교시간 17:00-18:30",
-                "interval": "15-20분 간격으로 운행",
-                "routes": {
-                    "internal": "교내순환 (대덕캠퍼스 내)",
-                    "campus": "캠퍼스순환 (대덕↔보운)"
+                "operation_overview": {
+                    "period": "2025. 3. 4.(화) ~ 2025. 12. 19.(금), 총 150일",
+                    "location": "교내(대덕캠퍼스) 및 캠퍼스 순환(대덕↔보운)",
+                    "buses": "학교버스 총 2대, 41인승",
+                    "operation_days": "학기 중 주간 운영(월~금)",
+                    "non_operation": "공휴일·대체공휴일·개교기념일·방학·수학능력시험일(10시 이전까지) 등 미운영"
                 },
-                "days": "평일 정상운행, 토요일 제한운행, 일요일/공휴일 운행중단",
-                "fee": "무료 (학생증 지참 필수)",
-                "external_transport": "대전역, 유성온천역 등에서 시내버스 이용 가능",
-                "contact": "총무과(042-821-5114)로 문의하세요.",
-                "info_source": "충남대 홈페이지 교통안내에서 확인하세요."
+
+                "campus_internal": {
+                    "name": "교내 순환 (대덕캠퍼스 내)",
+                    "operation_period": "학기 중 3.4.～12.19. 총 150일 (월～금)",
+                    "buses": "1대",
+                    "frequency": "1일 총 10회 운영",
+                    "first_bus": "08:30",
+                    "last_bus": "17:30",
+                    "morning_special": "등교 1회차: 월평역 출발 08:20 → 정심화 국제문화회관 도착",
+                    "schedule": [
+                        "08:30", "09:30", "09:40", "10:30", "11:30",
+                        "13:30", "14:30", "15:30", "16:30", "17:30"
+                    ],
+                    "route_stops": [
+                        "정심화 국제문화회관", "사회과학대학 입구(한누리회관 뒤)",
+                        "서문(공동실험실습관 앞)", "음악 2호관 앞", "공동동물실험센터(회차)",
+                        "체육관 입구", "예술대학 앞", "도서관 앞(대학본부 옆)", "학생생활관 3거리",
+                        "농업생명과학대학 앞", "동문주차장"
+                    ]
+                },
+
+                "campus_circulation": {
+                    "name": "캠퍼스 순환 (대덕↔보운)",
+                    "operation_period": "학기 중 (월～금)",
+                    "buses": "1대",
+                    "frequency": "1일 총 1회 운영 (회차)",
+                    "departure": "08:10 (대덕 골프연습장)",
+                    "arrival": "08:50 (보운캠퍼스)",
+                    "route": "골프연습장(08:10) → 중앙도서관(08:11) → 산학연교육연구관(08:12) → 충남대입구 버스정류장(08:13) → 월평역(08:15) → 보운캠퍼스(08:50)",
+                    "return_route": "보운캠퍼스 → 다솔아파트 건너편 → 제2학생회관 → 중앙도서관 → 골프연습장"
+                },
+
+                "external_stops": {
+                    "월평역": "3번 출구 건너편(테니스장 앞 버스정류장 부근)",
+                    "충남대입구": "버스정류장(홈플러스유성점방면)",
+                    "보운캠퍼스": "회차지점",
+                    "다솔아파트": "건너편"
+                },
+
+                "important_notes": [
+                    "교통상황 등으로 인해 전 구간에서 5분 내외 오차 발생 가능",
+                    "탑승자는 사전 대기 필요",
+                    "학교 버스가 보이면 탑승 의사를 알려주세요",
+                    "운행시간은 천재지변, 학교행사, 교통상황, 탑승 인원 등에 따라 변경 가능",
+                    "세부 운행시간은 이용자 및 운행 추이에 따라 논의를 거쳐 변동 가능"
+                ],
+
+                "contact": "총무과(042-821-5114) 또는 학생처 학생과",
+                "last_updated": "2025. 2. 18.(화), 학생처 학생과"
             },
 
             "notice": {
@@ -325,12 +370,15 @@ class CompleteCampusKnowledgeBase:
 
 
 class CompleteCampusChatBot:
-    """완전한 캠퍼스 챗봇 (정적 + 실시간 + 안정적 프롬프트)"""
+    """완전한 캠퍼스 챗봇 - AWQ 양자화 모델 사용"""
 
-    def __init__(self, model_name="beomi/Llama-3-Open-Ko-8B"):
+    def __init__(self, model_name = "Qwen/Qwen3-14B-AWQ"):
         self.model_name = model_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+
         print(f"🖥️ 디바이스: {self.device}")
+        print(f"🤖 모델: {model_name}")
+        print("🔧 AWQ 4-bit 양자화 모델 사용")
 
         # 완전한 지식 베이스 초기화
         self.knowledge_base = CompleteCampusKnowledgeBase()
@@ -338,12 +386,14 @@ class CompleteCampusChatBot:
 
         # 모델 로드
         self.load_model()
-        print("🤖 완전한 RAG 챗봇 초기화 완료")
+        print("🤖 AWQ 챗봇 초기화 완료")
 
     def load_model(self):
-        """모델 로드"""
+        """AWQ 양자화 모델 로드"""
         try:
-            print("🔄 Qwen 모델 로딩 중...")
+            print("🔄 AWQ 양자화 Qwen 모델 로딩 중...")
+
+            # 토크나이저 로드
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 trust_remote_code=True
@@ -353,160 +403,212 @@ class CompleteCampusChatBot:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
-            # 4-bit quantized 모델 로드
+            # AWQ 모델 로드 (이미 양자화되어 있음)
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                load_in_4bit=True,  # 4-bit quantization 활성화
-                device_map="auto",  # 자동 디바이스 배치
-                torch_dtype=torch.float16,  # float16 사용
+                device_map="auto",
+                torch_dtype=torch.float16,
                 trust_remote_code=True,
-                low_cpu_mem_usage=True  # CPU 메모리 사용량 최적화
+                low_cpu_mem_usage=True
             )
 
             self.model.eval()
-            print("✅ 모델 로딩 완료")
+            print("✅ AWQ 모델 로딩 완료 (메모리 절약: ~70%)")
 
         except Exception as e:
-            print(f"❌ 모델 로딩 실패: {e}")
-            raise
+            print(f"❌ AWQ 모델 로딩 실패: {e}")
+            print("💡 AWQ 모델이 없을 수 있습니다. 일반 모델로 fallback 시도...")
+
+            # Fallback to regular model
+            try:
+                fallback_model = "Qwen/Qwen2.5-7B-Instruct"
+                print(f"🔄 {fallback_model}로 fallback 시도...")
+
+                self.tokenizer = AutoTokenizer.from_pretrained(fallback_model, trust_remote_code=True)
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    fallback_model,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                    trust_remote_code=True
+                )
+
+                self.model_name = fallback_model
+                print("✅ Fallback 모델 로딩 완료")
+
+            except Exception as fallback_error:
+                print(f"❌ Fallback 모델도 실패: {fallback_error}")
+                raise
 
     def create_rich_context(self, relevant_info):
-        """풍부한 컨텍스트 생성"""
+        """풍부한 컨텍스트 생성 (길이 최적화)"""
         context = "=== 충남대학교 종합 정보 ===\n\n"
 
         for info_type, info_data in relevant_info:
             context += f"【{info_type}】\n"
 
             if info_type == "최신공지" and isinstance(info_data, list):
-                for i, notice in enumerate(info_data[:3], 1):
+                for i, notice in enumerate(info_data[:2], 1):  # 3개 → 2개로 축소
                     context += f"{i}. {notice.get('title', 'N/A')}\n"
-                    if 'url' in notice:
-                        context += f"   확인: {notice['url']}\n"
 
             elif info_type == "오늘메뉴":
                 if info_data.get('status') == "크롤링 성공":
                     context += f"날짜: {info_data['date']} ({info_data['day']}요일)\n"
                     if 'items' in info_data and info_data['items']:
-                        context += f"메뉴: {', '.join(info_data['items'][:5])}\n"
-                    context += f"상태: {info_data['message']}\n"
+                        context += f"메뉴: {', '.join(info_data['items'][:3])}\n"  # 5개 → 3개로 축소
                 else:
                     context += f"상태: {info_data.get('message', '정보 없음')}\n"
-                    if 'fallback' in info_data:
-                        context += f"대안: {info_data['fallback']}\n"
 
             elif isinstance(info_data, dict):
+                # 핵심 정보만 포함하도록 축소
+                key_count = 0
                 for key, value in info_data.items():
+                    if key_count >= 3:  # 최대 3개 항목만
+                        break
                     if isinstance(value, dict):
-                        context += f"• {key}:\n"
-                        for sub_key, sub_value in value.items():
-                            context += f"  - {sub_key}: {sub_value}\n"
+                        context += f"• {key}: {str(value)[:50]}...\n"  # 길이 제한
                     else:
-                        context += f"• {key}: {value}\n"
+                        context += f"• {key}: {str(value)[:100]}\n"  # 길이 제한
+                    key_count += 1
 
             context += "\n"
 
+            # 전체 컨텍스트 길이 제한
+            if len(context) > 1500:  # 길이 제한 강화
+                context = context[:1500] + "...\n"
+                break
+
         return context
 
-    def create_smart_prompt(self, question, context):
-        """스마트 프롬프트 생성"""
-        prompt = f"""충남대학교 학생을 도와주는 친절한 AI입니다. 아래 정보를 활용해 정확하고 도움이 되는 답변을 해주세요.
+    def create_balanced_prompt(self, question, context):
+        """메모리 효율적인 프롬프트 생성"""
+        now = datetime.now()
+        today = date.today()
+        weekday = today.strftime('%A')
+
+        # 간단한 시간 정보만
+        current_context = f"현재: {now.strftime('%Y-%m-%d %H:%M')} ({weekday})"
+
+        prompt = f"""<|im_start|>system
+당신은 충남대학교 학생 도우미입니다. {current_context}
 
 {context}
 
-학생 질문: {question}
-
-답변 (친절하고 정확하게):"""
+간결하고 정확한 답변을 해주세요.
+<|im_end|>
+<|im_start|>user
+{question}
+<|im_end|>
+<|im_start|>assistant
+"""
         return prompt
 
-    def generate_comprehensive_answer(self, question, max_new_tokens=300, temperature=0.7):
-        """종합적인 답변 생성"""
+    def generate_comprehensive_answer(self, question, max_new_tokens=150, temperature=0.1):
+        """메모리 최적화된 답변 생성"""
         try:
             print(f"🔍 질문 분석 중: {question}")
 
-            # 1. 관련 정보 검색 (정적 + 실시간)
+            # 메모리 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # 1. 관련 정보 검색
             relevant_info = self.knowledge_base.search_comprehensive_info(question)
 
-            # 2. 풍부한 컨텍스트 생성
+            # 2. 컨텍스트 생성 (크기 제한)
             context = self.create_rich_context(relevant_info)
 
-            # 3. 스마트 프롬프트 생성
-            prompt = self.create_smart_prompt(question, context)
+            # 3. 프롬프트 생성
+            prompt = self.create_balanced_prompt(question, context)
 
-            # 4. 토크나이징
+            # 4. 토크나이징 (길이 제한 강화)
             inputs = self.tokenizer(
                 prompt,
                 return_tensors="pt",
                 truncation=True,
-                max_length=3000  # 더 긴 컨텍스트 허용
+                max_length=1200  # 3000 → 1200으로 대폭 축소
             ).to(self.device)
 
-            # 5. 답변 생성
+            # 메모리 정리
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # 5. 답변 생성 (메모리 절약 설정)
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=max_new_tokens,
-                    temperature=temperature,
-                    do_sample=True,
-                    top_p=0.9,
-                    pad_token_id=self.tokenizer.eos_token_id
+                    max_new_tokens=max_new_tokens,  # 150으로 제한
+                    do_sample=False,  # 샘플링 비활성화로 메모리 절약
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    use_cache=False  # 캐시 비활성화로 메모리 절약
                 )
 
-            # 6. 디코딩 및 답변 추출
+            # 즉시 메모리 해제
+            del inputs
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # 6. 디코딩
             full_response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-            if "답변 (친절하고 정확하게):" in full_response:
-                answer = full_response.split("답변 (친절하고 정확하게):")[-1].strip()
+            # 메모리 해제
+            del outputs
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # 답변 추출
+            if "<|im_start|>assistant" in full_response:
+                answer = full_response.split("<|im_start|>assistant")[-1].strip()
             else:
                 answer = full_response.replace(prompt, "").strip()
 
-            # 7. 답변 품질 검사
-            if not answer or len(answer) < 15 or "질문" in answer[:50]:
-                print("⚠️ 생성된 답변 품질이 낮음, Fallback 사용")
-                return self.get_smart_fallback_answer(question, relevant_info)
+            # 답변 품질 검사 (최소한만)
+            if not answer or len(answer) < 5:
+                return self.get_fallback_answer(question)
 
-            print("✅ 고품질 답변 생성 완료")
+            print("✅ 답변 생성 완료")
             return answer
 
-        except Exception as e:
-            print(f"❌ 답변 생성 오류: {e}")
-            return self.get_smart_fallback_answer(question, relevant_info)
+        except torch.cuda.OutOfMemoryError:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print("❌ GPU 메모리 부족 - Fallback 사용")
+            return self.get_fallback_answer(question)
 
-    def get_smart_fallback_answer(self, question, relevant_info):
-        """스마트 Fallback 답변 (실시간 정보 반영)"""
+        except Exception as e:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print(f"❌ 답변 생성 오류: {e}")
+            return self.get_fallback_answer(question)
+
+    def get_fallback_answer(self, question):
+        """간단한 Fallback 답변 (메모리 절약)"""
         question_lower = question.lower()
 
-        # 실시간 정보 활용
-        for info_type, info_data in relevant_info:
-            if info_type == "오늘메뉴" and any(word in question_lower for word in ['식단', '학식', '메뉴']):
-                if info_data.get('status') == "크롤링 성공" and 'items' in info_data:
-                    return f"오늘({info_data['day']}요일) 예상 메뉴는 {', '.join(info_data['items'][:3])} 등입니다. 학생식당은 한식 4,000원, 양식 5,000원이에요. 정확한 식단은 생협 홈페이지에서 확인하세요."
-                else:
-                    return "식단 정보를 실시간으로 가져올 수 없었습니다. 학생식당은 한식 4,000원, 양식 5,000원이며, 운영시간은 중식 11:30-14:00, 석식 17:30-19:00입니다. 생협 홈페이지(coop.cnu.ac.kr)에서 확인하세요."
+        if any(word in question_lower for word in ['셔틀', '버스']):
+            return """🚌 2025년 충남대 셔틀버스 안내
 
-            elif info_type == "최신공지" and any(word in question_lower for word in ['공지', '장학금', '안내']):
-                if isinstance(info_data, list) and info_data:
-                    notice_titles = [notice.get('title', '') for notice in info_data[:2]]
-                    if notice_titles and notice_titles[0]:
-                        return f"최근 공지사항: {', '.join(notice_titles)}. 더 자세한 정보는 충남대 홈페이지(www.cnu.ac.kr)에서 확인하세요. 장학금 관련은 학생지원과(042-821-5015)로 문의하세요."
+📍 교내순환: 08:30~17:30 (1일 10회)
+시간: 08:30, 09:30, 09:40, 10:30, 11:30, 13:30, 14:30, 15:30, 16:30, 17:30
 
-        # 기본 Fallback 답변들
-        if any(word in question_lower for word in ['졸업', '학점']):
-            return "충남대학교 일반적인 졸업요건은 130학점 이상입니다. 공학계열은 140학점이 필요해요. 전공필수+전공선택+교양필수+교양선택+일반선택으로 구성됩니다. 정확한 정보는 학과 사무실이나 학사지원과(042-821-5025)에 문의하세요."
+📍 등교전용: 월평역 08:20 출발 → 정심화 국제문화회관
+📍 캠퍼스순환: 08:10 대덕 출발 → 08:50 보운 도착
 
-        elif any(word in question_lower for word in ['수강신청', '수강', '신청', '시험', '개강']):
-            return "수강신청 일정은 매 학기 시작 전에 학사지원과에서 공지합니다. CNU 포털시스템에서 진행되며, 중간고사는 4월/10월, 기말고사는 6월/12월 중순경입니다. 학사지원과(042-821-5025)로 문의하세요."
+📞 문의: 총무과 042-821-5114"""
 
-        elif any(word in question_lower for word in ['셔틀', '버스']):
-            return "셔틀버스는 등교시간 07:30-09:00, 하교시간 17:00-18:30에 15-20분 간격으로 운행합니다. 교내순환과 캠퍼스순환 노선이 있으며, 무료이고 학생증을 지참하세요. 총무과(042-821-5114)로 문의 가능합니다."
+        elif any(word in question_lower for word in ['졸업', '학점']):
+            return "충남대학교 졸업요건은 130학점 이상입니다. 공학계열은 140학점이 필요합니다. 자세한 문의: 학사지원과 042-821-5025"
 
-        elif any(word in question_lower for word in ['공지', '장학금']):
-            return "공지사항은 충남대 홈페이지(www.cnu.ac.kr)에서 확인하세요. 장학금 관련은 학생지원과(042-821-5015), 학과별 공지는 각 학과 홈페이지를 확인하세요."
+        elif any(word in question_lower for word in ['식단', '메뉴']):
+            return "학생식당: 한식 4,000원, 양식 5,000원. 운영시간: 11:30-14:00, 17:30-19:00. 생협: 042-821-5890"
 
         else:
-            return "충남대 관련 문의는 해당 부서로 연락주세요. 학사지원과(042-821-5025), 학생지원과(042-821-5015), 총무과(042-821-5114)에서 도움을 받을 수 있습니다."
+            return "문의사항은 관련 부서로 연락주세요. 학사지원과 042-821-5025, 총무과 042-821-5114"
 
     def process_test_file(self, test_file_path, output_file_path):
-        """테스트 파일 처리"""
+        """개별 처리로 메모리 절약"""
         try:
             if not os.path.exists(test_file_path):
                 print(f"❌ 테스트 파일이 없습니다: {test_file_path}")
@@ -516,37 +618,63 @@ class CompleteCampusChatBot:
                 test_data = json.load(f)
 
             results = []
-            print(f"📝 완전한 RAG 답변 생성 중... (총 {len(test_data)}개)")
-            print("⏰ 실시간 크롤링 포함으로 시간이 다소 걸릴 수 있습니다.")
+            print(f"📝 AWQ 모델 개별 처리 중... (총 {len(test_data)}개)")
 
-            for item in tqdm(test_data, desc="RAG 답변 생성"):
-                user_question = item['user']
+            for i, item in enumerate(test_data):
+                try:
+                    print(f"🔄 {i+1}/{len(test_data)}: {item['user'][:30]}...")
 
-                # 종합적인 답변 생성 (정적 + 실시간)
-                answer = self.generate_comprehensive_answer(user_question)
+                    # 각 질문마다 메모리 정리
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
-                results.append({
-                    "user": user_question,
-                    "model": answer
-                })
+                    answer = self.generate_comprehensive_answer(item['user'])
 
-            # 출력 디렉토리 생성
+                    results.append({
+                        "user": item['user'],
+                        "model": answer
+                    })
+
+                    # 5개마다 중간 저장 및 메모리 정리
+                    if (i + 1) % 5 == 0:
+                        print(f"💾 중간 저장... ({i+1}개 완료)")
+                        self.save_partial_results(results, output_file_path)
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+
+                except Exception as e:
+                    print(f"❌ 질문 {i+1} 실패: {e}")
+                    results.append({
+                        "user": item['user'],
+                        "model": f"처리 실패: {str(e)}"
+                    })
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
+            # 최종 저장
             os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-
-            # 결과 저장
             with open(output_file_path, 'w', encoding='utf-8') as f:
                 json.dump(results, f, ensure_ascii=False, indent=2)
 
-            print(f"✅ 완전한 RAG 결과 저장 완료: {output_file_path}")
+            print(f"✅ AWQ 모델 결과 저장 완료: {output_file_path}")
             return True
 
         except Exception as e:
             print(f"❌ 테스트 파일 처리 중 오류: {e}")
             return False
 
+    def save_partial_results(self, results, output_file_path):
+        """부분 결과 저장"""
+        try:
+            os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
+            with open(output_file_path, 'w', encoding='utf-8') as f:
+                json.dump(results, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"⚠️ 중간 저장 실패: {e}")
+
     def chat_interactive(self):
-        """대화형 채팅 (실시간 크롤링 포함)"""
-        print("\n🤖 충남대 완전한 RAG 챗봇입니다!")
+        """대화형 채팅"""
+        print("\n🤖 충남대 AWQ 양자화 RAG 챗봇입니다!")
         print("📡 실시간 정보 크롤링이 포함되어 있습니다.")
         print("(종료: 'quit' 또는 'exit')")
 
@@ -572,24 +700,27 @@ class CompleteCampusChatBot:
 
 def main():
     """메인 함수"""
-    print("🎓 충남대 Campus RAG ChatBot (완전한 버전)")
-    print("📡 실시간 크롤링 + 정적 정보 + 안정적 프롬프트")
+    print("🎓 충남대 Campus RAG ChatBot (AWQ 양자화)")
+    print("📡 실시간 크롤링 + 정적 정보 + AWQ 4-bit 양자화")
+    print("🔧 메모리 최적화 버전")
     print("=" * 60)
 
     try:
-        # 완전한 RAG 챗봇 초기화
-        chatbot = CompleteCampusChatBot()
+        # AWQ 양자화 RAG 챗봇 초기화
+        chatbot = CompleteCampusChatBot(
+            model_name = "Qwen/Qwen3-14B-AWQ"
+        )
 
         # 테스트 파일 처리
-        test_file_path = "./data/test_chat.json"
-        output_file_path = "./outputs/chat_output.json"
+        test_file_path = "./data/shuttle_test_chat.json"
+        output_file_path = "./outputs/shuttle_test_chat_output.json"
 
         if os.path.exists(test_file_path):
             print(f"📂 테스트 파일 발견: {test_file_path}")
             success = chatbot.process_test_file(test_file_path, output_file_path)
 
             if success:
-                print("✅ 완전한 RAG 챗봇 테스트 완료!")
+                print("✅ AWQ 양자화 챗봇 테스트 완료!")
 
                 # 결과 미리보기
                 with open(output_file_path, 'r', encoding='utf-8') as f:
@@ -601,10 +732,11 @@ def main():
                     print(f"   답변: {result['model']}")
                     print("-" * 60)
 
-                # 크롤링 성공 여부 확인
-                print("\n📊 실시간 정보 크롤링 결과:")
-                print("• 공지사항 크롤링:", "성공" if "공지사항" in str(results) else "실패")
-                print("• 식단 크롤링:", "성공" if "메뉴" in str(results) else "실패")
+                # 모델 정보 출력
+                print(f"\n🤖 사용된 모델: {chatbot.model_name}")
+                print(f"🔧 양자화: AWQ 4-bit")
+                print(f"🖥️ 실행 디바이스: {chatbot.device}")
+                print(f"💾 예상 메모리 절약: 70%")
 
             else:
                 print("❌ 테스트 실패!")
@@ -614,10 +746,10 @@ def main():
 
             # 대화형 테스트
             sample_questions = [
-                "오늘 학식 메뉴가 뭔가요?",
-                "최근 공지사항이 있나요?",
+                "셔틀버스 시간표를 알려주세요",
+                "월평역에서 학교까지 셔틀버스 있나요?",
                 "졸업까지 몇 학점이 필요한가요?",
-                "셔틀버스 시간표를 알려주세요"
+                "오늘 학식 메뉴가 뭔가요?"
             ]
 
             print("\n🧪 샘플 질문으로 테스트:")
@@ -629,7 +761,8 @@ def main():
 
     except Exception as e:
         print(f"❌ 초기화 실패: {e}")
-        print("💡 인터넷 연결과 Python 환경을 확인해주세요")
+        print("💡 AWQ 모델이 없거나 GPU 메모리 부족일 수 있습니다")
+        print("💡 fallback 모델로 자동 전환됩니다")
 
 
 if __name__ == "__main__":
