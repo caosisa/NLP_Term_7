@@ -1,5 +1,6 @@
 # Colab용 requirements.txt (간소화 버전)
 
+autoawq
 # 딥러닝/AI 관련 (핵심)
 torch==2.5.1
 transformers
