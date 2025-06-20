@@ -46,9 +46,7 @@ chmod +x chatbot.sh
 ```
 Termproject_{조}/
 ├── data/                          # 데이터 파일들
-│   ├── train.json                 # 학습 데이터
-│   ├── test_cls.json              # 분류기 테스트 데이터
-│   ├── test_chat.json             # 챗봇 테스트 데이터
+│   └── train.json                 # 학습 데이터
 ├── src/                           # 소스 코드
 │   ├── classifier.ipynb           # 질문 유형 분류기
 │   ├── chatbot_model.py           # 챗봇 모델
@@ -119,7 +117,7 @@ Termproject_{조}/
 
 - **팀명**: 7조
 - **프로젝트 기간**: 2024.05 - 2024.06
-- **소속**: 충남대학교 컴퓨터공학과
+- **소속**: 충남대학교 인공지능학과
 
 ## 📞 문의사항
 
