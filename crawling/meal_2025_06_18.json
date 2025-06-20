@@ -1,0 +1,88 @@
+{
+  "date": "2025-06-18",
+  "meals": [
+    {
+      "meal_type": "조식",
+      "target": "학생",
+      "cafeteria": "제2학생회관",
+      "menu": [
+        "소고기야채죽(beef included)",
+        "볼어묵조림",
+        "우리쌀씨리얼",
+        "우유",
+        "깍두기"
+      ]
+    },
+    {
+      "meal_type": "중식",
+      "target": "직원",
+      "cafeteria": "제2학생회관",
+      "menu": [
+        "돼지국밥(pork included)",
+        "해물파전",
+        "부추겉절이",
+        "꿀떡",
+        "깍두기"
+      ]
+    },
+    {
+      "meal_type": "중식",
+      "target": "직원",
+      "cafeteria": "제3학생회관",
+      "menu": [
+        "매주 수요일은 현미 먹는 날",
+        "미역오이냉국",
+        "닭간장조림(chicken included)",
+        "잡채(pork included)",
+        "진미채야채무침",
+        "건파래무침",
+        "백김치"
+      ]
+    },
+    {
+      "meal_type": "중식",
+      "target": "학생",
+      "cafeteria": "제2학생회관",
+      "menu": [
+        "마제소바",
+        "작은밥",
+        "감자고로케",
+        "요쿠르트",
+        "단무지"
+      ]
+    },
+    {
+      "meal_type": "중식",
+      "target": "학생",
+      "cafeteria": "제3학생회관",
+      "menu": [
+        "차슈덮밥(pork included)",
+        "치킨가라아게(어니언소스)(chicken included)"
+      ]
+    },
+    {
+      "meal_type": "중식",
+      "target": "학생",
+      "cafeteria": "생활과학대학",
+      "menu": [
+        "냉모밀국수",
+        "후리가케주먹밥",
+        "돈까스(pork included)",
+        "황도샐러드",
+        "단무지"
+      ]
+    },
+    {
+      "meal_type": "석식",
+      "target": "직원",
+      "cafeteria": "제3학생회관",
+      "menu": [
+        "쌀밥",
+        "돼지국밥(pork included)",
+        "만두강정(pork included)",
+        "곤약우동샐러드",
+        "깍두기"
+      ]
+    }
+  ]
+}
