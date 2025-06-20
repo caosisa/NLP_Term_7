@@ -22,7 +22,6 @@ class CompleteCampusKnowledgeBase:
 
     def __init__(self):
         self.setup_static_knowledge()
-        self.setup_real_urls()
         self.cache = {}
         self.cache_timeout = 1800  # 30분 캐시
 
@@ -584,19 +583,19 @@ class CompleteCampusKnowledgeBase:
 
             "dining": {
                 "student_restaurant": {
-                    "location": "학생회관 지하 1층",
-                    "korean": "한식 4,000원",
-                    "western": "양식 5,000원",
-                    "chinese": "중식 5,500원",
-                    "special": "특식 6,000원"
+                    "location": "제 1학생회관",
+                    "korean": "한식 평균 4,000원",
+                    "western": "양식 평균 5,000원",
+                    "chinese": "중식 평균 5,500원",
+                    "special": "특식 평균 6,000원"
                 },
                 "faculty_restaurant": {
-                    "location": "학생회관 2층",
-                    "price": "6,500-7,500원"
+                    "location": "제 2학생회관",
+                    "price": "4,500원"
                 },
                 "cafeteria": {
                     "location": "정심화국제문화회관 1층",
-                    "menu": "카페, 간식, 샐러드"
+                    "menu": "커피, 간식, 샐러드"
                 },
                 "hours": {
                     "breakfast": "08:00-09:30 (평일, 일부 식당)",
@@ -725,48 +724,6 @@ class CompleteCampusKnowledgeBase:
         # 날짜를 찾지 못하면 None (오늘 날짜 사용)
         return None
 
-    def setup_real_urls(self):
-        """실제 충남대 URL들"""
-        self.urls = {
-            # 공지사항
-            "main_notice": "https://plus.cnu.ac.kr/",
-            "academic_notice": "https://plus.cnu.ac.kr/_prog/_board/?code=sub07_0702&site_dvs_cd=kr&menu_dvs_cd=0702",
-            "student_notice": "https://cnustudent.cnu.ac.kr/cnustudent/notice/notice.do",
-
-            # 학사일정
-            "academic_calendar": "https://plus.cnu.ac.kr/_prog/academic_calendar/?site_dvs_cd=kr&menu_dvs_cd=05020101",
-
-            # 식단 정보
-            "meal_mobile": "https://mobileadmin.cnu.ac.kr/food/index.jsp",
-            "dorm_meal": "https://dorm.cnu.ac.kr/",
-            "coop_main": "https://www.cnucoop.co.kr/",
-        }
-
-    def get_cached_data(self, key):
-        """캐시 데이터 조회"""
-        if key in self.cache:
-            data, timestamp = self.cache[key]
-            if time.time() - timestamp < self.cache_timeout:
-                return data
-        return None
-
-    def set_cache(self, key, data):
-        """캐시 데이터 저장"""
-        self.cache[key] = (data, time.time())
-
-    def safe_request(self, url, timeout=10):
-        """안전한 웹 요청"""
-        try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            response = requests.get(url, headers=headers, timeout=timeout)
-            response.raise_for_status()
-            return response
-        except Exception as e:
-            print(f"⚠️ 웹 요청 실패 {url}: {e}")
-            return None
-
     def fetch_today_menu(self, date_str=None):
         """식단 크롤링 - 날짜 자동 처리"""
 
@@ -882,68 +839,73 @@ class CompleteCampusKnowledgeBase:
             print(f"❌ 식단 크롤링 오류: {e}")
 
     def fetch_latest_notices(self):
-        """최신 공지사항 크롤링"""
-        cached = self.get_cached_data("notices")
-        if cached:
-            return cached
-
         print("📢 공지사항 크롤링 중...")
 
         try:
-            # 충남대 메인 페이지 크롤링
-            response = self.safe_request(self.urls["main_notice"])
+            # 기본 URL
+            BASE_URL = "https://plus.cnu.ac.kr/_prog/_board/"
 
-            notices = []
+            # 요청 파라미터
+            PARAMS = {
+                "code": "sub07_0702",
+                "site_dvs_cd": "kr",
+                "menu_dvs_cd": "0702",
+                "skey": "",
+                "sval": "",
+                "site_dvs": "",
+                "ntt_tag": "",
+                "GotoPage": 1
+            }
 
-            if response and response.status_code == 200:
+            def get_notice_list(page=1):
+                PARAMS["GotoPage"] = page
+                response = requests.get(BASE_URL, params=PARAMS)
+                response.encoding = 'utf-8'
                 soup = BeautifulSoup(response.text, 'html.parser')
 
-                # 다양한 선택자로 뉴스/공지 찾기
-                news_selectors = [
-                    'h3', 'h4', 'h5',  # 제목 태그
-                    '.news-title', '.notice-title', '.board-title',  # 클래스명
-                    '[class*="title"]', '[class*="news"]',  # 부분 클래스명
-                ]
+                # board_list 클래스의 div 객체 찾기
+                board_div = soup.find('div', class_='board_list')
+                if not board_div:
+                    print("📛 'board_list' 클래스를 가진 div를 찾지 못했습니다.")
+                    return []
 
-                for selector in news_selectors:
-                    elements = soup.select(selector)
-                    for element in elements[:5]:  # 각 선택자당 최대 5개
-                        text = element.get_text(strip=True)
-                        if text and len(text) > 10 and len(text) < 200:  # 적절한 길이
-                            notices.append({
-                                "title": text,
-                                "date": date.today().strftime("%Y-%m-%d"),
-                                "source": "충남대 홈페이지",
-                                "url": self.urls["main_notice"]
-                            })
+                rows = board_div.find_all('tr')
+                notices = []
 
-                    if len(notices) >= 3:  # 충분히 찾았으면 중단
-                        break
+                for row in rows[1:]:  # 첫 번째는 헤더
+                    cols = row.find_all('td')
+                    if len(cols) < 4:
+                        continue
 
-                # 중복 제거
-                seen_titles = set()
-                unique_notices = []
-                for notice in notices:
-                    if notice["title"] not in seen_titles:
-                        seen_titles.add(notice["title"])
-                        unique_notices.append(notice)
-                        if len(unique_notices) >= 5:
-                            break
+                    title_tag = cols[1].find('a')
+                    if not title_tag:
+                        continue
 
-                notices = unique_notices
-                print(f"✅ 공지사항 {len(notices)}개 크롤링 성공")
+                    title = title_tag.get_text(strip=True)
 
-            if not notices:
-                notices = [{
-                    "title": "공지사항 크롤링 실패",
-                    "message": "충남대 홈페이지에서 직접 확인하세요.",
-                    "url": self.urls["main_notice"],
-                    "fallback": "각 학과 홈페이지나 CNU 포털도 확인해보세요."
-                }]
-                print("⚠️ 공지사항 크롤링 실패")
+                    # 작성자
+                    writer = cols[2].get_text(strip=True)
 
-            self.set_cache("notices", notices)
-            return notices
+                    # 날짜
+                    date = cols[3].get_text(strip=True)
+
+                    notices.append({
+                        'title': title,
+                        'writer': writer,
+                        'date': date
+                    })
+
+                return notices
+
+            all_notices = []
+            for page in range(1, 6):  # 예: 5페이지까지 크롤링
+                notices = get_notice_list(page)
+                if not notices:
+                    break
+                all_notices.extend(notices)
+
+            print(f"총 {len(all_notices)}개의 게시물 수집 완료")
+            return all_notices
 
         except Exception as e:
             print(f"❌ 공지사항 크롤링 오류: {e}")
@@ -1006,12 +968,10 @@ class CompleteCampusKnowledgeBase:
             relevant_info.append(("학사일정_정보", self.static_knowledge["academic_schedule"]))
 
         # 식단 관련 (실시간 크롤링)
-        if any(word in question_lower for word in ['식단', '학식', '메뉴', '식당', '밥', '점심', '저녁', '아침']):
+        if any(word in question_lower for word in ['식단', '학식', '메뉴', '식당', '밥', '점심', '저녁', '아침','1학','2학','3학','긱사','기숙']):
             relevant_info.append(("식당_기본정보", self.static_knowledge["dining"]))
-
             # 날짜 추출 시도
             date_str = self.extract_date_from_question(question)
-
             # 식단 크롤링 (날짜 자동 처리)
             today_menu = self.fetch_today_menu(date_str)
             relevant_info.append(("식단정보", today_menu))
@@ -1148,7 +1108,8 @@ class CompleteCampusChatBot:
         # 간단한 시간 정보만
         current_context = f"현재: {now.strftime('%Y-%m-%d %H:%M')} ({weekday})"
 
-        prompt = f""" <|im_start|>system
+        prompt = f""" /no think
+                <|im_start|>system
                 너는 충남대학교 학생이 궁금한 정보를 물어볼때 대답해주는 어시스턴트야. 
                 다음 정보를 바탕으로 간결하고 정확한 답변을 자신감있게 해줘.
                 날짜와 관련된 정보가 있으면 오늘 날짜와 비교해서 정보 가져와줘
@@ -1416,8 +1377,8 @@ def main():
         )
 
         # 테스트 파일 처리
-        test_file_path = "./data/shuttle_test_chat.json"
-        output_file_path = "./outputs/think_shuttle_test_chat_output.json"
+        test_file_path = "./data/test_chat.json"
+        output_file_path = "./outputs/chat_output.json"
 
         if os.path.exists(test_file_path):
             print(f"📂 테스트 파일 발견: {test_file_path}")
