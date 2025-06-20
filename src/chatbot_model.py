@@ -602,7 +602,8 @@ class CompleteCampusKnowledgeBase:
                     "lunch": "11:30-14:00",
                     "dinner": "17:30-19:00"
                 },
-                "weekend": "주말에는 대부분 식당이 운영하지 않습니다.",
+                "more_info":"식단표 확인은 2일뒤까지만 공개됩니다.",
+                "weekend": "주말에는 식당이 운영하지 않습니다.",
                 "info_source": "생협 홈페이지(coop.cnu.ac.kr)에서 식단을 확인하세요.",
                 "contact": "생활협동조합(042-821-5890)으로 문의하세요."
             },
@@ -692,18 +693,46 @@ class CompleteCampusKnowledgeBase:
     def extract_date_from_question(self, question):
         """질문에서 날짜 추출"""
         import re
+        from datetime import timedelta
 
-        # 오늘, 내일 등의 키워드
+        # 어제
+        if any(word in question.lower() for word in ['어제', 'yesterday']):
+            yesterday = date.today() - timedelta(days=1)
+            return yesterday.strftime("%Y.%m.%d")
+
+        # 오늘, 지금
         if any(word in question.lower() for word in ['오늘', 'today', '지금']):
             return None  # None이면 오늘 날짜 사용
 
+        # 내일
         if any(word in question.lower() for word in ['내일', 'tomorrow']):
-            tomorrow = date.today().replace(days=1) if hasattr(date.today(), 'replace') else date.today()
-            # 더 안전한 방법
-            from datetime import timedelta
             tomorrow = date.today() + timedelta(days=1)
             return tomorrow.strftime("%Y.%m.%d")
-        #보완        # 숫자 날짜 패턴 (2024.12.25, 2024-12-25, 12/25 등)
+
+        # 모레
+        if any(word in question.lower() for word in ['모레']):
+            day_after_tomorrow = date.today() + timedelta(days=2)
+            return day_after_tomorrow.strftime("%Y.%m.%d")
+
+        # 이번 주 요일들
+        weekday_patterns = {
+            '월요일': 0, '화요일': 1, '수요일': 2, '목요일': 3,
+            '금요일': 4, '토요일': 5, '일요일': 6
+        }
+
+        for weekday_name, weekday_num in weekday_patterns.items():
+            if weekday_name in question:
+                today = date.today()
+                days_ahead = weekday_num - today.weekday()
+
+                # 이번 주 해당 요일이 지났으면 다음 주
+                if days_ahead <= 0:
+                    days_ahead += 7
+
+                target_date = today + timedelta(days=days_ahead)
+                return target_date.strftime("%Y.%m.%d")
+
+        # 숫자 날짜 패턴 (2024.12.25, 2024-12-25, 12/25 등)
         date_patterns = [
             r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})',  # YYYY.MM.DD
             r'(\d{1,2})[.\-/](\d{1,2})',  # MM.DD (올해)
@@ -1200,45 +1229,73 @@ class CompleteCampusChatBot:
                 torch.cuda.empty_cache()
             print(f"❌ 답변 생성 오류: {e}")
             return self.get_fallback_answer(question)
+
     def extract_answer_from_response(self, full_response, prompt):
-        """응답에서 실제 답변 부분만 추출 - 간소화된 버전"""
+        """응답에서 실제 답변 부분만 추출 - 개선된 버전"""
         try:
-            # 1. 프롬프트 부분 제거
-            if full_response.startswith(prompt):
-                answer = full_response[len(prompt):].strip()
-            else:
-                # 2. assistant 토큰 이후 부분 추출
-                if "<|im_start|>assistant" in full_response:
-                    parts = full_response.split("<|im_start|>assistant")
-                    answer = parts[-1].strip()
-                else:
-                    answer = full_response.strip()
+            # 1. 먼저 <think> 태그와 내용 완전 제거
+            import re
+            answer = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL)
 
-            # 3. 특수 토큰들 제거
-            answer = re.sub(r'<\|im_end\|>', '', answer)
-            answer = re.sub(r'<\|im_start\|>.*?>', '', answer)
+            # 2. /no think 제거
+            answer = re.sub(r'/no think\s*', '', answer)
 
-            # 4. 시스템 프롬프트가 답변에 포함된 경우 제거
-            if "당신은 충남대학교 학생 도우미입니다" in answer:
+            # 3. 시스템 프롬프트 부분 제거
+            if "너는 충남대학교 학생이 궁금한 정보를 물어볼때 대답해주는 어시스턴트야" in answer:
+                # assistant 이후 부분만 추출
                 parts = answer.split("assistant")
                 if len(parts) > 1:
                     answer = parts[-1].strip()
 
-            # 5. 컨텍스트 정보가 답변에 포함된 경우 제거
+            # 4. 특수 토큰들 제거
+            answer = re.sub(r'<\|im_end\|>', '', answer)
+            answer = re.sub(r'<\|im_start\|>.*?>', '', answer)
+
+            # 5. system, user, assistant 태그들 제거
+            answer = re.sub(r'\n\s*(system|user|assistant)\s*\n', '\n', answer)
+            answer = re.sub(r'^(system|user|assistant)\s*', '', answer)
+
+            # 6. 컨텍스트 정보 제거
             if "=== 충남대학교 종합 정보 ===" in answer:
-                parts = answer.split("간결하고 정확한 답변을 해주세요.")
+                parts = answer.split("assistant")
                 if len(parts) > 1:
                     answer = parts[-1].strip()
 
-            # 6. 역할 태그들 제거
-            answer = re.sub(r'^(system|user|assistant)\s*', '', answer)
-            answer = re.sub(r'\n(system|user|assistant)\s*', '\n', answer)
+            # 7. 프롬프트에서 사용자 질문 추출하여 답변에서 제거
+            if "user" in prompt and "assistant" in prompt:
+                # 사용자 질문 부분 찾기
+                user_parts = prompt.split("user")
+                if len(user_parts) > 1:
+                    assistant_parts = user_parts[-1].split("assistant")
+                    if len(assistant_parts) > 0:
+                        user_question = assistant_parts[0].strip()
+                        # 답변에서 사용자 질문 제거
+                        if user_question in answer:
+                            answer = answer.replace(user_question, "").strip()
 
-            # 7. 앞뒤 공백 및 개행 정리
+            # 8. 최종 정리
             answer = answer.strip()
 
-            # 8. 빈 답변이면 None 반환
-            if not answer or len(answer.strip()) < 3:
+            # 9. 여전히 시스템 텍스트가 남아있는지 확인
+            unwanted_patterns = [
+                r'현재: \d{4}-\d{2}-\d{2} \d{2}:\d{2} \([^)]+\)',
+                r'【[^】]*】[^【]*',  # 【】로 둘러싸인 섹션들
+                r'• [^:]+: [^•]*',  # • 로 시작하는 정보들
+            ]
+
+            for pattern in unwanted_patterns:
+                answer = re.sub(pattern, '', answer, flags=re.DOTALL)
+
+            # 10. 빈 줄 정리
+            answer = re.sub(r'\n\s*\n\s*\n', '\n\n', answer)
+            answer = answer.strip()
+
+            # 11. 최종 검증 - 답변이 너무 짧거나 시스템 정보만 있는 경우
+            if not answer or len(answer.strip()) < 10:
+                return None
+
+            # 12. 시스템 정보가 여전히 남아있는 경우 간단한 답변으로 대체
+            if any(keyword in answer for keyword in ['충남대학교 종합 정보', '현재:', '【', '•']):
                 return None
 
             return answer
