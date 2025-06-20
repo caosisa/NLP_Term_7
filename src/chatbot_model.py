@@ -719,25 +719,29 @@ class CompleteCampusKnowledgeBase:
             '월요일': 0, '화요일': 1, '수요일': 2, '목요일': 3,
             '금요일': 4, '토요일': 5, '일요일': 6
         }
-
         for weekday_name, weekday_num in weekday_patterns.items():
             if weekday_name in question:
                 today = date.today()
                 days_ahead = weekday_num - today.weekday()
-
                 # 이번 주 해당 요일이 지났으면 다음 주
                 if days_ahead <= 0:
                     days_ahead += 7
-
                 target_date = today + timedelta(days=days_ahead)
                 return target_date.strftime("%Y.%m.%d")
+
+        # 한국어 월/일 패턴 (6월 18일, 12월 25일 등)
+        korean_date_pattern = r'(\d{1,2})월\s*(\d{1,2})일'
+        match = re.search(korean_date_pattern, question)
+        if match:
+            month, day = match.groups()
+            current_year = date.today().year
+            return f"{current_year}.{month.zfill(2)}.{day.zfill(2)}"
 
         # 숫자 날짜 패턴 (2024.12.25, 2024-12-25, 12/25 등)
         date_patterns = [
             r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})',  # YYYY.MM.DD
             r'(\d{1,2})[.\-/](\d{1,2})',  # MM.DD (올해)
         ]
-
         for pattern in date_patterns:
             match = re.search(pattern, question)
             if match:
@@ -1137,7 +1141,7 @@ class CompleteCampusChatBot:
         # 간단한 시간 정보만
         current_context = f"현재: {now.strftime('%Y-%m-%d %H:%M')} ({weekday})"
 
-        prompt = f""" /no think
+        prompt = f"""
                 <|im_start|>system
                 너는 충남대학교 학생이 궁금한 정보를 물어볼때 대답해주는 어시스턴트야. 
                 다음 정보를 바탕으로 간결하고 정확한 답변을 자신감있게 해줘.
