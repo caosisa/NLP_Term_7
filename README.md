@@ -103,7 +103,7 @@ Termproject_{조}/
 ## 🛠️ 기술 스택
 
 - **Language**: Python 3.10.12
-- **ML Framework**: PyTorch 2.5.1, Transformers 4.40.0
+- **ML Framework**: PyTorch 2.5.1, Transformers 4.52.4
 - **Web Framework**: Gradio
 - **Data Processing**: Pandas, NumPy, Scikit-learn
 - **Web Scraping**: Requests, BeautifulSoup4
