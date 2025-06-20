@@ -704,8 +704,7 @@ class CompleteCampusKnowledgeBase:
             from datetime import timedelta
             tomorrow = date.today() + timedelta(days=1)
             return tomorrow.strftime("%Y.%m.%d")
-        #보완
-        # 숫자 날짜 패턴 (2024.12.25, 2024-12-25, 12/25 등)
+        #보완        # 숫자 날짜 패턴 (2024.12.25, 2024-12-25, 12/25 등)
         date_patterns = [
             r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})',  # YYYY.MM.DD
             r'(\d{1,2})[.\-/](\d{1,2})',  # MM.DD (올해)

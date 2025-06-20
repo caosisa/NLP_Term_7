@@ -48,7 +48,6 @@ if [ $? -ne 0 ]; then
     echo "의존성 문제로 종료합니다."
     exit 1
 fi
-
 # Step 2: 챗봇 모델 실행 (수정된 버전)
 echo ""
 echo "Step 2: 챗봇 모델 실행 중..."
