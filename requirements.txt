@@ -1,4 +1,4 @@
-torch
+torch==2.5.1
 apturl==0.5.2
 bcrypt==3.2.0
 beautifulsoup4==4.10.0
@@ -91,3 +91,5 @@ zipp==1.0.0
 zorin-appearance==5.3
 zorin-connect==1.2
 zorin-exec-guard==1.5
+streamlit
+flask
